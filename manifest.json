@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Chroma for claude.ai",
+  "short_name": "Chroma",
+  "version": "1.3.1",
+  "description": "Unofficial theme layer for claude.ai: per-chat and per-tab accent colors, darker and AMOLED backgrounds, accent window glow, hotkeys.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnd4/4FYfbB3jIOqohfSbsp85EKL00Pn2SzqUtQ3VAwWEhChajyRlBVuNG0e5yI/ePu58I0UMIUnwtyi5UoATwmz8NuPlMUBo0lCBacFFa77QAD659SlEtUjpMeidK13HIL7y1ZNOLEpeCi9p9MTCWegtd5kL4/se9OT99hU4DC6YCtyATdE8gcJkC0+dDiR2PgfEuf2qpdjfQf7De81MZcYCzWRjNx5AYr9gWZhD18guEVLpUe+EiiLo5j/iQDfmocWiPPDpNQtKbOB6JI55B1TzT0O8M+bquSvoqOFdFd1mcDTuKElcfdoAm6DFuoD9WXeIXfOl3CiqJYcLsTaagQIDAQAB",
+  "permissions": ["storage", "alarms"],
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_title": "Chroma: toggle panel (Alt+Shift+P on the page)",
+    "default_icon": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" }
+  },
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ]
+}

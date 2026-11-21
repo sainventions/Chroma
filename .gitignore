@@ -1,0 +1,6 @@
+# Build output (python dev/build_zip.py)
+chroma.zip
+# Local tooling
+.claude/
+__pycache__/
+*.pyc

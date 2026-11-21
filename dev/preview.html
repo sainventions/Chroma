@@ -1,0 +1,39 @@
+<!doctype html>
+<!--
+  Mock claude.ai page for working on Chroma's UI without reloading the extension.
+  Serve the repo root and open this page:
+      python -m http.server 5917 --bind 127.0.0.1      (run in the repo root)
+      http://localhost:5917/dev/preview.html
+  (file:// works for looking, but browser tooling can't script file pages.)
+  The tokens below are stand-ins for claude.ai's dark theme; when claude.ai changes,
+  refresh them from the live site with dev/audit.js.
+-->
+<html class="cds-root" data-mode="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chroma preview</title>
+<style>
+  :root { --cds-surface-1:#191919; --cds-surface-popover:#303030; --cds-text-primary:#ffffffed; --cds-text-secondary:#ffffff91;
+          --cds-border-line:#ffffff1f; --cds-fill-ghost-hover:#ffffff13; --cds-fill-field:hsl(0 0% 100% / 5%); --bg-100: 0 0% 10%; }
+  html, body { margin:0; background:var(--cds-surface-1); color:#eee; font-family:system-ui; height:100%; }
+  header.top { display:flex; align-items:center; height:45px; padding:0 8px; gap:4px; border-bottom:1px solid #ffffff14; }
+  header.top .sp { flex:1 }
+  header.top button { width:28px; height:28px; border:0; border-radius:8px; background:#ffffff10; color:#ccc; }
+</style>
+<script>
+  // Minimal chrome.* stub so content.js runs outside an extension.
+  const store = { chroma: { v: 3, theme: 'amoled', glow: true, glowSize: 20, glowStrength: 50 } };
+  window.chrome = {
+    storage: { sync: { get: (k, cb) => cb(store), set: (o) => Object.assign(store, o) }, onChanged: { addListener() {} } },
+    runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener() {} } },
+  };
+</script>
+<script src="../content.js"></script>
+</head>
+<body>
+  <!-- Shaped like claude.ai's top bar: the launcher attaches after the rightmost button. -->
+  <header class="top"><button aria-label="Hide sidebar">≡</button><span>Claude</span><span class="sp"></span><button aria-label="Share">⇪</button><button aria-label="Side panel">▯</button></header>
+  <main style="padding:40px;color:#888">Mock claude.ai page. Hover or click the dot at the top right.</main>
+</body>
+</html>
