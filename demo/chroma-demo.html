@@ -1,0 +1,556 @@
+<!doctype html>
+<!--
+  Chroma motion demo: a deterministic 33 s timeline. renderAt(t) draws the whole
+  scene for time t, so the same file plays live (requestAnimationFrame loop) and
+  renders frame-exact video (demo/render-video.js opens it with #export and calls
+  window.seek(t) per frame).
+  Space: pause/resume (live mode only).
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chroma demo</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #view { position: fixed; inset: 0; display: grid; place-items: center; }
+  #screen { position: relative; width: 1920px; height: 1080px; overflow: hidden; flex: none;
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; color: #e6e6e6; background: #06070a; }
+  #world { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; will-change: transform; }
+
+  /* desktop */
+  .wall { position: absolute; left: -1200px; top: -900px; width: 4320px; height: 2880px;
+    background:
+      radial-gradient(900px 600px at 1500px 1100px, rgba(64, 52, 140, .35), transparent 70%),
+      radial-gradient(1100px 700px at 2700px 1600px, rgba(20, 90, 120, .28), transparent 70%),
+      radial-gradient(800px 600px at 2000px 2100px, rgba(120, 40, 80, .22), transparent 70%),
+      linear-gradient(160deg, #0b0d14, #07080c 60%, #0a0b10); }
+  .taskbar { position: absolute; left: -1200px; width: 4320px; top: 1032px; height: 48px;
+    background: rgba(22, 24, 30, .94); border-top: 1px solid rgba(255,255,255,.07); }
+  .tb-icons { position: absolute; left: 2052px; top: 8px; display: flex; gap: 8px; }
+  .tb-icons i { width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,.08); display: grid; place-items: center; position: relative; }
+  .tb-icons i.on::after { content: ""; position: absolute; bottom: -5px; width: 12px; height: 3px; border-radius: 2px; background: #9aa0aa; }
+  .tb-icons i svg { width: 18px; height: 18px; color: #d97757; }
+
+  /* windows */
+  .win { position: absolute; border-radius: 10px; overflow: hidden; transform-origin: 0 0; background: #191919;
+    box-shadow: 0 24px 70px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.09); }
+  .titlebar { position: absolute; left: 0; right: 0; top: 0; height: 34px; background: #2b2b2b; display: flex; align-items: center; gap: 9px; padding-left: 12px; font-size: 12.5px; color: #e4e4e4; }
+  .wctl { margin-left: auto; display: flex; height: 100%; }
+  .wctl i { width: 46px; display: grid; place-items: center; }
+  .wctl i::before { content: ""; width: 10px; height: 10px; box-sizing: border-box; }
+  .wctl i.min::before { height: 1px; background: #c8c8c8; }
+  .wctl i.max::before { border: 1px solid #c8c8c8; }
+  .wctl i.cls::before { background: linear-gradient(45deg, transparent 46%, #c8c8c8 46% 54%, transparent 54%), linear-gradient(-45deg, transparent 46%, #c8c8c8 46% 54%, transparent 54%); }
+  .fav { position: relative; width: 16px; height: 16px; flex: none; }
+  .fav svg { width: 16px; height: 16px; color: #d97757; display: block; }
+  .fav b { position: absolute; right: -3px; bottom: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--fd, #d97757); box-shadow: 0 0 0 2px var(--fb, #2b2b2b); }
+
+  /* tab strip (tabbed PWA) */
+  .tabstrip { position: absolute; left: 0; right: 0; top: 0; height: 40px; background: #1f1f1f; }
+  .tab { position: absolute; top: 4px; height: 32px; width: 200px; border-radius: 9px 9px 0 0; display: flex; align-items: center; gap: 9px; padding: 0 10px 0 12px; box-sizing: border-box; font-size: 12.5px; color: #cfcfcf; overflow: hidden; white-space: nowrap; }
+  .tab .x { margin-left: auto; width: 14px; height: 14px; opacity: .55; background: linear-gradient(45deg, transparent 44%, #bbb 44% 56%, transparent 56%), linear-gradient(-45deg, transparent 44%, #bbb 44% 56%, transparent 56%); flex: none; }
+  .tab .sep { position: absolute; right: 0; top: 8px; width: 1px; height: 16px; background: rgba(255,255,255,.14); }
+  .newtab { position: absolute; top: 8px; width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; }
+  .newtab::before { content: ""; width: 12px; height: 12px; background: linear-gradient(#c8c8c8, #c8c8c8) center/12px 1.5px no-repeat, linear-gradient(#c8c8c8, #c8c8c8) center/1.5px 12px no-repeat; }
+
+  /* claude.ai-like page */
+  .app { position: absolute; left: 0; right: 0; bottom: 0; background: var(--bg); overflow: hidden; }
+  .pane { position: absolute; inset: 0; background: var(--bg); }
+  .rail { position: absolute; left: 0; top: 0; bottom: 0; width: 48px; background: var(--side); border-right: 1px solid var(--line); }
+  .rail b { display: block; width: 18px; height: 18px; border-radius: 6px; background: rgba(255,255,255,.12); margin: 14px auto 0; }
+  .rail b:first-child { margin-top: 12px; background: rgba(255,255,255,.2); }
+  .tsk { position: absolute; left: 64px; top: 15px; height: 10px; border-radius: 5px; background: rgba(255,255,255,.2); }
+  .share { position: absolute; top: 8px; right: 46px; width: 62px; height: 24px; border-radius: 8px; border: 1px solid rgba(255,255,255,.13); box-sizing: border-box; }
+  .dot { position: absolute; top: 6px; right: 8px; width: 32px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: rgba(255,255,255, var(--hov, 0)); }
+  .dot i { width: 14px; height: 14px; border-radius: 50%; background: var(--acc); box-shadow: 0 0 0 3px rgb(var(--accRGB) / .22), 0 0 10px rgb(var(--accRGB) / .6); }
+  .sk { position: absolute; height: 8px; border-radius: 4px; background: rgba(255,255,255,.15); }
+  .sk.u { background: rgba(255,255,255,.24); }
+  .bubble-u { position: absolute; border-radius: 14px; background: rgba(255,255,255,.07); }
+  .spark { position: absolute; color: var(--acc); }
+  .spark svg { display: block; width: 100%; height: 100%; }
+  .box { position: absolute; border-radius: 10px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); box-sizing: border-box; }
+  .code { position: absolute; border-radius: 10px; background: #0e0e0e; border: 1px solid rgba(255,255,255,.07); box-sizing: border-box; }
+  .bul { position: absolute; width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.35); }
+  .composer { position: absolute; border-radius: 18px; background: var(--comp); border: 1px solid var(--ring); box-sizing: border-box; }
+  .composer .ph { position: absolute; left: 18px; top: 16px; height: 9px; width: 150px; border-radius: 5px; background: rgba(255,255,255,.14); }
+  .composer .plus { position: absolute; left: 12px; bottom: 9px; width: 24px; height: 24px; border-radius: 8px; border: 1px solid rgba(255,255,255,.13); box-sizing: border-box; }
+  .composer .send { position: absolute; right: 10px; bottom: 9px; width: 28px; height: 28px; border-radius: 9px; background: var(--acc); }
+  .composer .send::before { content: ""; position: absolute; left: 13px; top: 8px; width: 2px; height: 12px; background: rgba(255,255,255,.9); border-radius: 1px; }
+  .glow { position: absolute; inset: 0; pointer-events: none; z-index: 5;
+    box-shadow: inset 0 0 0 1.5px rgb(var(--accRGB) / calc(var(--g) * .85)), inset 0 0 30px 7px rgb(var(--accRGB) / calc(var(--g) * .5)); }
+
+  /* Chroma UI */
+  .card { position: absolute; transform-origin: top right; background: var(--pop, #262626); border: 1px solid rgba(255,255,255,.12); border-radius: 14px;
+    box-shadow: 0 14px 40px rgba(0,0,0,.55); box-sizing: border-box; overflow: hidden; }
+  .sw { position: absolute; border-radius: 50%; }
+  .sw.sel { box-shadow: 0 0 0 2px var(--pop, #262626), 0 0 0 3.5px var(--c); }
+  .sw.rainbow { background: conic-gradient(from 90deg, #f43f5e, #f59e0b, #eab308, #22c55e, #06b6d4, #3b82f6, #a855f7, #ec4899, #f43f5e); }
+  .pv { position: absolute; inset: 0; }
+  .chip { position: absolute; left: 12px; top: 14px; height: 28px; padding: 0 12px 0 10px; border-radius: 999px; background: rgba(255,255,255,.06); display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #eee; }
+  .chip i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); }
+  .ic { position: absolute; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: #aaa; }
+  .ic svg { width: 17px; height: 17px; }
+  .ptitle { position: absolute; left: 44px; top: 19px; font-size: 14px; font-weight: 600; color: #eee; }
+  .plab { position: absolute; left: 24px; font-size: 12px; color: #9a9a9a; }
+  .seg { position: absolute; left: 20px; right: 20px; height: 34px; border-radius: 10px; background: rgba(255,255,255,.06); }
+  .seg span { position: absolute; top: 3px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 12px; color: #a8a8a8; }
+  .seg span.on { background: var(--pop2, #333); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+  .row { position: absolute; left: 24px; right: 24px; height: 40px; display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: #e8e8e8; border-top: 1px solid rgba(255,255,255,.07); }
+  .tog { width: 36px; height: 22px; border-radius: 999px; background: var(--c); position: relative; }
+  .tog::after { content: ""; position: absolute; right: 3px; top: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+  .rng { width: 120px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.15); position: relative; }
+  .rng::before { content: ""; position: absolute; left: 0; top: 0; height: 4px; width: 30%; border-radius: 2px; background: var(--c); }
+  .rng::after { content: ""; position: absolute; left: calc(30% - 7px); top: -5px; width: 14px; height: 14px; border-radius: 50%; background: var(--c); }
+
+  /* cursor + fx (screen space) */
+  #fx { position: absolute; inset: 0; pointer-events: none; }
+  .ripple { position: absolute; border-radius: 50%; border: 2px solid rgba(255,255,255,.9); box-sizing: border-box; }
+  #cursor { position: absolute; left: 0; top: 0; width: 28px; height: 36px; transform-origin: 2px 2px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.6)); }
+  #fade { position: absolute; inset: 0; background: #000; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="view"><div id="screen">
+  <div id="world">
+    <div class="wall"></div>
+    <div class="taskbar"><div class="tb-icons"><i></i><i></i><i class="on" id="tbClaude"></i><i></i><i></i></div></div>
+  </div>
+  <div id="fx"></div>
+  <svg id="cursor" viewBox="-1 -1 16 21"><path d="M0 0 L0 16.5 L4.3 12.6 L7.2 19.2 L10.1 17.9 L7.3 11.6 L12.6 11.6 Z" fill="#fff" stroke="#000" stroke-width="1.1" stroke-linejoin="round"/></svg>
+  <div id="fade"></div>
+</div></div>
+<script>
+'use strict';
+// ------------------------------------------------------------------ helpers
+const DURATION = 33;
+const $ = (s, r = document) => r.querySelector(s);
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, p) => a + (b - a) * p;
+const ease = {
+  io: (p) => (p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2),
+  out: (p) => 1 - Math.pow(1 - p, 3),
+  back: (p) => { const c = 1.6; return 1 + (c + 1) * Math.pow(p - 1, 3) + c * Math.pow(p - 1, 2); },
+};
+const seg = (t, a, b, e = ease.io) => e(clamp((t - a) / (b - a)));
+// Keyframe track: [[time, value], ...]; value = number or array of numbers.
+function track(keys, t, e = ease.io) {
+  if (t <= keys[0][0]) return keys[0][1];
+  for (let i = 1; i < keys.length; i++) {
+    if (t <= keys[i][0]) {
+      const [t0, v0] = keys[i - 1], [t1, v1] = keys[i];
+      const p = e(clamp((t - t0) / (t1 - t0)));
+      return Array.isArray(v0) ? v0.map((v, j) => lerp(v, v1[j], p)) : lerp(v0, v1, p);
+    }
+  }
+  return keys[keys.length - 1][1];
+}
+const hexRgb = (h) => { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+const mix = (a, b, p) => a.map((v, i) => Math.round(lerp(v, b[i], p)));
+const css = (c) => `rgb(${c[0]} ${c[1]} ${c[2]})`;
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+const ACC = { claude: '#D97757', red: '#EF4444', orange: '#F97316', amber: '#F59E0B', yellow: '#EAB308', lime: '#84CC16', green: '#22C55E',
+  emerald: '#10B981', teal: '#14B8A6', cyan: '#06B6D4', sky: '#0EA5E9', blue: '#3B82F6', indigo: '#6366F1', violet: '#8B5CF6',
+  purple: '#A855F7', fuchsia: '#D946EF', pink: '#EC4899', rose: '#F43F5E', mono: '#D4D4D4' };
+const ORDER = Object.keys(ACC);
+// Accent track: [[time, name], ...] -> rgb at time t, with a short cross-fade on each change.
+function accAt(list, t, dur = .28) {
+  let i = 0;
+  while (i + 1 < list.length && t >= list[i + 1][0]) i++;
+  const cur = hexRgb(ACC[list[i][1]]);
+  if (i === 0) return cur;
+  return mix(hexRgb(ACC[list[i - 1][1]]), cur, ease.out(clamp((t - list[i][0]) / dur)));
+}
+const nameAt = (list, t) => { let i = 0; while (i + 1 < list.length && t >= list[i + 1][0]) i++; return list[i][1]; };
+
+const SPARK = '<svg viewBox="-12 -12 24 24"><g stroke="currentColor" stroke-width="2.6" stroke-linecap="round">'
+  + [0, 45, 90, 135, 180, 225, 270, 315].map((a, i) => { const r = i % 2 ? 8 : 10.5, x = Math.cos(a * Math.PI / 180), y = Math.sin(a * Math.PI / 180); return `<line x1="${(x * 2).toFixed(2)}" y1="${(y * 2).toFixed(2)}" x2="${(x * r).toFixed(2)}" y2="${(y * r).toFixed(2)}"/>`; }).join('')
+  + '</g></svg>';
+$('#tbClaude').innerHTML = SPARK;
+
+// ------------------------------------------------------------------ themes
+const THEME = {
+  site: { bg: hexRgb('#191919'), side: hexRgb('#1f1f1f'), comp: hexRgb('#262626'), pop: hexRgb('#2f2f2f') },
+  amoled: { bg: hexRgb('#000000'), side: hexRgb('#000000'), comp: hexRgb('#0b0b0b'), pop: hexRgb('#141414') },
+};
+function setTheme(el, p) { // p: 0 = site, 1 = AMOLED
+  el.style.setProperty('--bg', css(mix(THEME.site.bg, THEME.amoled.bg, p)));
+  el.style.setProperty('--side', css(mix(THEME.site.side, THEME.amoled.side, p)));
+  el.style.setProperty('--comp', css(mix(THEME.site.comp, THEME.amoled.comp, p)));
+  el.style.setProperty('--line', `rgba(255,255,255,${lerp(.05, .09, p)})`);
+}
+function setAccent(el, c, g) { // c: rgb, g: glow/assigned 0..1
+  el.style.setProperty('--acc', css(c));
+  el.style.setProperty('--accRGB', `${c[0]} ${c[1]} ${c[2]}`);
+  el.style.setProperty('--g', g.toFixed(3));
+  const ring = mix([255, 255, 255], c, g);
+  el.style.setProperty('--ring', `rgb(${ring.join(' ')} / ${lerp(.1, .3, g).toFixed(3)})`);
+}
+
+// ------------------------------------------------------------------ page content
+const TITLES = ['Circuit notes', 'Trip plan', 'Essay draft', 'Bug hunt', 'New chat'];
+function pageHTML(w, h, variant) {
+  const R = rng(variant * 97 + 13);
+  const big = w > 1000;
+  const colW = Math.min(big ? 660 : 520, w - 48 - 90);
+  const colL = Math.round(48 + (w - 48 - colW) / 2);
+  const compW = colW + 24, compH = 66, compL = Math.round(48 + (w - 48 - compW) / 2);
+  let s = '<div class="rail"><b></b><b></b><b></b><b></b><b></b></div>';
+  s += '<div class="dot"><i></i></div>';
+  if (variant === 4) { // fresh /new page: greeting + centered composer
+    const cy = Math.round(h * .4);
+    s += `<div class="spark" style="left:${Math.round(48 + (w - 48) / 2 - 130)}px;top:${cy - 64}px;width:30px;height:30px">${SPARK}</div>`;
+    s += `<div class="sk u" style="left:${Math.round(48 + (w - 48) / 2 - 88)}px;top:${cy - 53}px;width:220px;height:12px;border-radius:6px"></div>`;
+    s += `<div class="composer" style="left:${compL}px;top:${cy}px;width:${compW}px;height:${compH + 22}px"><div class="ph"></div><div class="plus"></div><div class="send"></div></div>`;
+    s += `<div class="box" style="left:${compL + 40}px;top:${cy + 118}px;width:${compW - 80}px;height:40px;background:transparent;border-style:dashed;opacity:.6"></div>`;
+    return s;
+  }
+  s += `<div class="tsk" style="width:${[140, 96, 118, 84][variant]}px"></div><div class="share"></div>`;
+  const bottom = h - 16 - compH - 22;
+  let y = 58;
+  const line = (x, ww, cls = '') => { if (y + 8 < bottom) s += `<div class="sk ${cls}" style="left:${x}px;top:${y}px;width:${Math.round(ww)}px"></div>`; };
+  const para = (n, indent = 0) => { for (let i = 0; i < n; i++) { line(colL + indent, (i === n - 1 ? .45 + R() * .3 : .86 + R() * .14) * (colW - indent)); y += 20; } y += 10; };
+  // user turn
+  const ub = Math.round(colW * (.42 + R() * .12));
+  s += `<div class="bubble-u" style="left:${colL + colW - ub}px;top:${y}px;width:${ub}px;height:46px"></div>`;
+  s += `<div class="sk u" style="left:${colL + colW - ub + 16}px;top:${y + 13}px;width:${ub - 32}px"></div>`;
+  s += `<div class="sk u" style="left:${colL + colW - ub + 16}px;top:${y + 27}px;width:${Math.round((ub - 32) * .55)}px"></div>`;
+  y += 70;
+  // assistant turn
+  s += `<div class="spark" style="left:${colL}px;top:${y}px;width:20px;height:20px">${SPARK}</div>`;
+  y += 32;
+  const blocks = big ? 4 : 2;
+  for (let b = 0; b < blocks && y < bottom; b++) {
+    if (variant === 0) { para(3); if (y + 46 < bottom) { s += `<div class="box" style="left:${colL + colW * .2}px;top:${y}px;width:${colW * .6}px;height:36px"></div><div class="sk" style="left:${colL + colW * .32}px;top:${y + 14}px;width:${colW * .36}px"></div>`; } y += 50; }
+    if (variant === 1) { line(colL, colW * .6); y += 26; for (let i = 0; i < 4; i++) { if (y + 8 < bottom) s += `<div class="bul" style="left:${colL + 4}px;top:${y + 1}px"></div>`; line(colL + 18, colW * .16, 'u'); line(colL + 18 + colW * .18, colW * (.38 + R() * .35)); y += 22; } y += 12; }
+    if (variant === 2) { para(4); }
+    if (variant === 3) { para(2); const ch = 112; if (y + ch < bottom) { s += `<div class="code" style="left:${colL}px;top:${y}px;width:${colW}px;height:${ch}px"></div>`; const cols = ['#c792ea', '#82aaff', '#c3e88d', '#ffcb6b', '#89ddff']; for (let i = 0; i < 5; i++) { s += `<div class="sk" style="left:${colL + 18 + (i % 3) * 14}px;top:${y + 16 + i * 18}px;width:${Math.round(colW * (.2 + R() * .45))}px;background:${cols[i]};opacity:.45"></div>`; } } y += ch + 18; }
+  }
+  s += `<div class="composer" style="left:${compL}px;top:${h - 16 - compH}px;width:${compW}px;height:${compH}px"><div class="ph"></div><div class="plus"></div><div class="send"></div></div>`;
+  return s;
+}
+
+// ------------------------------------------------------------------ scene objects
+const world = $('#world');
+function favHTML() { return `<span class="fav">${SPARK}<b></b></span>`; }
+
+// Standalone PWA window (title bar + one page).
+function makeWindow(o) {
+  const el = document.createElement('div');
+  el.className = 'win';
+  Object.assign(el.style, { left: o.x + 'px', top: o.y + 'px', width: o.w + 'px', height: o.h + 'px' });
+  el.innerHTML = `<div class="titlebar">${favHTML()}<span>${TITLES[o.chat]} - Claude</span><div class="wctl"><i class="min"></i><i class="max"></i><i class="cls"></i></div></div>`
+    + `<div class="app" style="top:34px"><div class="pane">${pageHTML(o.w, o.h - 34, o.chat)}</div><div class="glow"></div></div>`;
+  el.style.zIndex = o.z || 1;
+  world.appendChild(el);
+  o.el = el; o.app = $('.app', el); o.favDot = $('.fav b', el); o.dotEl = $('.dot', el);
+  o.TB = 34;
+  return o;
+}
+
+// Tabbed PWA window (tab strip + one page per tab).
+function makeTabbed(o) {
+  const el = document.createElement('div');
+  el.className = 'win';
+  Object.assign(el.style, { left: o.x + 'px', top: o.y + 'px', width: o.w + 'px', height: o.h + 'px', transformOrigin: '50% 40%' });
+  let tabs = '';
+  for (let i = 0; i < 5; i++) tabs += `<div class="tab" data-i="${i}">${favHTML()}<span>${TITLES[i]}</span><i class="x"></i><i class="sep"></i></div>`;
+  let panes = '';
+  for (let i = 0; i < 5; i++) panes += `<div class="pane" data-i="${i}">${pageHTML(o.w, o.h - 40, i)}</div>`;
+  el.innerHTML = `<div class="tabstrip">${tabs}<div class="newtab"></div><div class="wctl" style="position:absolute;right:0;top:0;height:34px"><i class="min"></i><i class="max"></i><i class="cls"></i></div></div>`
+    + `<div class="app" style="top:40px">${panes}<div class="glow"></div></div>`;
+  world.appendChild(el);
+  o.el = el; o.app = $('.app', el);
+  o.tabs = [...el.querySelectorAll('.tab')]; o.panes = [...el.querySelectorAll('.pane')];
+  o.plus = $('.newtab', el); o.TB = 40;
+  return o;
+}
+
+const W = 908, H = 464;
+const cycle = ORDER.slice(1, 12).map((n, k) => [13.95 + k * .12, n]); // Alt+. sweep: red ... blue
+const WINS = [
+  makeWindow({ x: 40, y: 36, w: W, h: H, z: 5, chat: 0, acc: [[0, 'claude'], [5.9, 'purple']], glowAt: 5.9, amoledAt: 19.27 }),
+  makeWindow({ x: 972, y: 36, w: W, h: H, z: 5, chat: 1, acc: [[0, 'claude'], [9.0, 'teal']], glowAt: 9.0, amoledAt: 19.2 }),
+  makeWindow({ x: 40, y: 524, w: W, h: H, z: 5, chat: 2, acc: [[0, 'claude'], [12.1, 'amber']], glowAt: 12.1, amoledAt: 19.41 }),
+  makeWindow({ x: 972, y: 524, w: W, h: H, z: 5, chat: 3, acc: [[0, 'claude'], ...cycle], glowAt: 13.95, amoledAt: 19.34 }),
+];
+const TABBED = makeTabbed({ x: 40, y: 36, w: 1220, h: 952,
+  paneAcc: [[[0, 'purple']], [[0, 'teal']], [[0, 'amber']], [[0, 'blue']], [[0, 'claude'], [27.6, 'lime']]],
+  paneGlowAt: [-9, -9, -9, -9, 27.6],
+  active: [[0, 0], [23.0, 1], [23.8, 2], [24.6, 3], [25.55, 4]] });
+const RIGHT = [
+  makeWindow({ x: 1284, y: 36, w: 596, h: 464, chat: 1, acc: [[0, 'teal']], glowAt: -9, amoledAt: -9, slideAt: 28.8 }),
+  makeWindow({ x: 1284, y: 524, w: 596, h: 464, chat: 2, acc: [[0, 'amber']], glowAt: -9, amoledAt: -9, slideAt: 29.0 }),
+];
+const dotOf = (o) => [o.x + o.w - 24, o.y + o.TB + 20];
+
+// Chroma bubble + panel (one instance each, re-anchored to whichever window owns them).
+const BUB = { w: 162, h: 132 }, PAN = { w: 268, h: 266 };
+const bubble = document.createElement('div');
+bubble.className = 'card';
+Object.assign(bubble.style, { width: BUB.w + 'px', height: BUB.h + 'px', borderRadius: '13px' });
+ORDER.forEach((n, i) => { const c = i % 5, r = Math.floor(i / 5); bubble.insertAdjacentHTML('beforeend', `<div class="sw" data-n="${n}" style="left:${8 + c * 30 + 3}px;top:${8 + r * 30 + 3}px;width:20px;height:20px;background:${ACC[n]};--c:${ACC[n]}"></div>`); });
+bubble.insertAdjacentHTML('beforeend', `<div class="ic" style="left:${8 + 4 * 30}px;top:${8 + 3 * 30}px;width:26px;height:26px">${'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>'}</div>`);
+bubble.style.zIndex = 20;
+world.appendChild(bubble);
+
+const panel = document.createElement('div');
+panel.className = 'card';
+Object.assign(panel.style, { width: PAN.w + 'px', height: PAN.h + 'px' });
+const RESET = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>';
+const TUNE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>';
+const BACK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>';
+let pmain = `<div class="pv" id="pmain"><div class="chip"><i></i><span>Default</span></div><div class="ic" style="left:${PAN.w - 76}px;top:14px">${RESET}</div><div class="ic" style="left:${PAN.w - 44}px;top:14px">${TUNE}</div>`;
+ORDER.forEach((n, i) => { const c = i % 5, r = Math.floor(i / 5); pmain += `<div class="sw" data-n="${n}" style="left:${12 + c * 50 + 6}px;top:${60 + r * 50 + 6}px;width:34px;height:34px;background:${ACC[n]};--c:${ACC[n]}"></div>`; });
+pmain += `<div class="sw rainbow" style="left:${12 + 4 * 50 + 6}px;top:${60 + 3 * 50 + 6}px;width:34px;height:34px"></div></div>`;
+const segW = (PAN.w - 40 - 6) / 3;
+let pset = `<div class="pv" id="pset"><div class="ic" style="left:10px;top:12px">${BACK}</div><div class="ptitle">Settings</div>`
+  + `<div class="plab" style="top:60px">Background</div><div class="seg" style="top:82px">`
+  + ['Site', 'Darker', 'AMOLED'].map((n, i) => `<span data-i="${i}" style="left:${3 + i * segW}px;width:${segW}px">${n}</span>`).join('') + '</div>'
+  + '<div class="row" style="top:134px"><span>Glow</span><i class="tog"></i></div>'
+  + '<div class="row" style="top:174px"><span>Size</span><i class="rng"></i></div>'
+  + '<div class="row" style="top:214px"><span>Strength</span><i class="rng" style="--w:50%"></i></div></div>';
+panel.innerHTML = pmain + pset;
+panel.style.zIndex = 20;
+world.appendChild(panel);
+const pMain = $('#pmain', panel), pSet = $('#pset', panel);
+
+// Anchor geometry (world coords) for clicks.
+const bubAt = (d) => ({ left: d[0] + 14 - BUB.w, top: d[1] + 18 });
+const panAt = (d) => ({ left: d[0] + 14 - PAN.w, top: d[1] + 20 });
+const bubSw = (d, n) => { const i = ORDER.indexOf(n), b = bubAt(d); return [b.left + 8 + (i % 5) * 30 + 13, b.top + 8 + Math.floor(i / 5) * 30 + 13]; };
+const panSw = (d, n) => { const i = ORDER.indexOf(n), b = panAt(d); return [b.left + 12 + (i % 5) * 50 + 23, b.top + 60 + Math.floor(i / 5) * 50 + 23]; };
+const panTune = (d) => { const b = panAt(d); return [b.left + PAN.w - 30, b.top + 28]; };
+const panSeg = (d, i) => { const b = panAt(d); return [b.left + 20 + 3 + segW * (i + .5), b.top + 82 + 17]; };
+
+const D = WINS.map(dotOf), DT = [TABBED.x + TABBED.w - 24, TABBED.y + 40 + 20];
+// Bubble / panel open intervals.
+const BUBBLES = [
+  { d: D[0], o: WINS[0], open: 5.0, close: 6.05 },
+  { d: D[1], o: WINS[1], open: 8.15, close: 9.1 },
+  { d: DT, o: null, open: 26.75, close: 27.7 },
+];
+const PANELS = [
+  { d: D[2], o: WINS[2], open: 10.95, close: 12.6, settingsAt: 99 },
+  { d: D[1], o: WINS[1], open: 17.75, close: 19.95, settingsAt: 18.4 },
+];
+
+// ------------------------------------------------------------------ choreography
+const FULL = [960, 540, 1];
+const ZOOM = 1.7;
+const center = (o) => [o.x + o.w / 2, o.y + o.h / 2, ZOOM];
+const CAM = [
+  [0, FULL], [3.0, FULL], [4.0, center(WINS[0])],
+  [6.8, center(WINS[0])], [7.8, center(WINS[1])],
+  [9.6, center(WINS[1])], [10.6, center(WINS[2])],
+  [12.8, center(WINS[2])], [13.8, center(WINS[3])],
+  [15.2, center(WINS[3])], [16.2, FULL],
+  [16.6, FULL], [17.4, center(WINS[1])],
+  [20.0, center(WINS[1])], [20.8, FULL],
+  [22.3, FULL], [23.0, [889, 500, 1.08]],
+  [28.4, [889, 500, 1.08]], [29.4, FULL], [33, FULL],
+];
+const tabPt = (i) => [48 + i * 204 + 100, 56];
+const CUR = [
+  [0, [1320, 1160]], [2.6, [1150, 720]], [3.0, [1100, 640]], [4.0, [760, 320]],
+  [4.8, D[0]], [5.25, D[0]], [5.8, bubSw(D[0], 'purple')], [6.4, bubSw(D[0], 'purple')],
+  [7.3, [1500, 260]], [8.0, D[1]], [8.4, D[1]], [8.9, bubSw(D[1], 'teal')], [9.5, bubSw(D[1], 'teal')],
+  [10.1, [700, 700]], [10.8, D[2]], [11.3, D[2]], [12.0, panSw(D[2], 'amber')], [12.15, panSw(D[2], 'amber')],
+  [12.5, [560, 860]], [12.7, [560, 860]],
+  [13.8, [1520, 800]], [15.2, [1520, 800]], [16.2, [1300, 620]],
+  [17.6, D[1]], [17.8, D[1]], [18.3, panTune(D[1])], [18.45, panTune(D[1])],
+  [19.1, panSeg(D[1], 2)], [19.3, panSeg(D[1], 2)], [19.8, [1520, 380]], [20.1, [1520, 380]],
+  [20.8, [1300, 620]], [22.4, [720, 420]],
+  [22.9, tabPt(1)], [23.05, tabPt(1)], [23.7, tabPt(2)], [23.85, tabPt(2)], [24.5, tabPt(3)], [24.65, tabPt(3)],
+  [25.4, [880, 56]], [25.6, [880, 56]],
+  [26.6, DT], [27.0, DT], [27.5, bubSw(DT, 'lime')], [28.1, bubSw(DT, 'lime')],
+  [29.6, [1040, 700]], [33, [1040, 700]],
+];
+const CLICKS = [5.9, 9.0, 10.9, 12.1, 12.55, 17.7, 18.35, 19.2, 19.9, 23.0, 23.8, 24.6, 25.5, 27.6];
+
+// ------------------------------------------------------------------ render
+const fx = $('#fx'), cursor = $('#cursor'), fade = $('#fade');
+const ripples = CLICKS.map(() => { const r = document.createElement('div'); r.className = 'ripple'; fx.appendChild(r); return r; });
+
+function styleWindow(o, t, extra = {}) {
+  const c = accAt(o.acc, t);
+  const g = o.glowAt <= t ? seg(t, o.glowAt, o.glowAt + .6, ease.out) : 0;
+  const assigned = nameAt(o.acc, t) !== 'claude';
+  setAccent(o.app, c, assigned ? g : 0);
+  setTheme(o.app, o.amoledAt < 0 ? 1 : seg(t, o.amoledAt, o.amoledAt + .45));
+  o.favDot.style.setProperty('--fd', css(c));
+}
+
+function placeCard(card, d, open, close, t, w) {
+  const vis = t >= open - .001 && t < close + .14;
+  card.style.display = vis ? 'block' : 'none';
+  if (!vis) return false;
+  const pIn = seg(t, open, open + .18, ease.out), pOut = seg(t, close, close + .13);
+  const s = lerp(.92, 1, pIn) - .06 * pOut;
+  card.style.left = (d[0] + 14 - w) + 'px';
+  card.style.top = (d[1] + (card === panel ? 20 : 18)) + 'px';
+  card.style.opacity = (pIn * (1 - pOut)).toFixed(3);
+  card.style.transform = `scale(${s.toFixed(4)})`;
+  return true;
+}
+
+function markSelected(card, name) {
+  card.querySelectorAll('.sw[data-n]').forEach((e) => e.classList.toggle('sel', e.dataset.n === name));
+}
+
+function renderAt(t) {
+  t = ((t % DURATION) + DURATION) % DURATION;
+  // camera
+  const [cx, cy, cs] = track(CAM, t);
+  world.style.transform = `translate(960px,540px) scale(${cs}) translate(${-cx}px,${-cy}px)`;
+  const toScreen = (p) => [(p[0] - cx) * cs + 960, (p[1] - cy) * cs + 540];
+
+  // act 1-3: the four standalone windows, then the morph into tabs (21.0-22.0)
+  WINS.forEach((o, i) => {
+    const morph = seg(t, 21.0 + i * .09, 21.75 + i * .09); // staggered fly-in to tab i
+    styleWindow(o, t);
+    if (morph <= 0) { o.el.style.transform = ''; o.el.style.opacity = 1; o.el.style.display = 'block'; }
+    else if (morph >= 1) { o.el.style.display = 'none'; }
+    else {
+      o.el.style.display = 'block';
+      const tx = lerp(0, 48 + i * 204 - o.x, morph), ty = lerp(0, 40 - o.y, morph), s = lerp(1, 200 / W, morph);
+      o.el.style.transform = `translate(${tx}px,${ty}px) scale(${s})`;
+      o.el.style.opacity = (1 - clamp((morph - .45) / .55)).toFixed(3);
+    }
+  });
+
+  // act 4: tabbed window
+  const tIn = seg(t, 21.35, 22.15, ease.out);
+  TABBED.el.style.display = t > 21.3 ? 'block' : 'none';
+  if (t > 21.3) {
+    TABBED.el.style.opacity = tIn.toFixed(3);
+    TABBED.el.style.transform = `scale(${lerp(.97, 1, tIn)})`;
+    let ai = 0; for (const [tk, v] of TABBED.active) if (t >= tk) ai = v;
+    const prevAi = (() => { let p = 0, last = 0; for (const [tk, v] of TABBED.active) { if (t >= tk) { p = last; last = v; } } return p; })();
+    const switchT = TABBED.active.reduce((acc, [tk]) => (t >= tk ? tk : acc), 0);
+    const sp = seg(t, switchT, switchT + .22, ease.out);
+    const newTab = seg(t, 25.5, 25.78, ease.out);
+    TABBED.tabs.forEach((tab, i) => {
+      const acc = accAt(TABBED.paneAcc[i], t);
+      $('.fav b', tab).style.setProperty('--fd', css(acc));
+      const visible = i < 4 || newTab > 0;
+      tab.style.display = visible ? 'flex' : 'none';
+      tab.style.left = (8 + i * 204) + 'px';
+      if (i === 4) { tab.style.width = (200 * newTab) + 'px'; tab.style.opacity = newTab; }
+      const on = i === ai;
+      tab.style.background = on ? '#383838' : 'transparent';
+      tab.style.color = on ? '#f2f2f2' : '#bdbdbd';
+      $('.fav b', tab).style.setProperty('--fb', on ? '#383838' : '#1f1f1f');
+      $('.sep', tab).style.opacity = on || i + 1 === ai ? 0 : 1;
+    });
+    TABBED.plus.style.left = (8 + 4 * 204 + 204 * newTab + 4) + 'px';
+    TABBED.panes.forEach((pane, i) => {
+      const op = i === ai ? (ai === prevAi ? 1 : sp) : 0;
+      pane.style.opacity = op.toFixed(3);
+      pane.style.zIndex = i === ai ? 2 : 1;
+      pane.style.display = i === ai || (i === prevAi && sp < 1) ? 'block' : 'none';
+      const acc = accAt(TABBED.paneAcc[i], t);
+      const gAt = TABBED.paneGlowAt[i];
+      setAccent(pane, acc, gAt <= t ? seg(t, gAt, gAt + .6, ease.out) : 0);
+      setTheme(pane, 1);
+    });
+    // window-level glow follows the active tab's color
+    const accA = accAt(TABBED.paneAcc[ai], t), accP = accAt(TABBED.paneAcc[prevAi], t);
+    const gA = TABBED.paneGlowAt[ai] <= t ? seg(t, TABBED.paneGlowAt[ai], TABBED.paneGlowAt[ai] + .6, ease.out) : 0;
+    const gP = TABBED.paneGlowAt[prevAi] <= t ? 1 : 0;
+    setAccent(TABBED.app, mix(accP, accA, sp), lerp(gP, gA, sp));
+    setTheme(TABBED.app, 1);
+  }
+
+  // act 5: same chats in other windows keep their colors
+  RIGHT.forEach((o) => {
+    const p = seg(t, o.slideAt, o.slideAt + .8, ease.out);
+    o.el.style.display = p > 0 ? 'block' : 'none';
+    o.el.style.transform = `translateX(${lerp(680, 0, p)}px)`;
+    o.el.style.opacity = p.toFixed(3);
+    styleWindow(o, t);
+  });
+
+  // launcher hover highlight
+  const cur = track(CUR, t);
+  const hov = (d) => (Math.abs(cur[0] - d[0]) < 16 && Math.abs(cur[1] - d[1]) < 14 ? .09 : 0);
+  WINS.forEach((o, i) => o.dotEl.style.setProperty('--hov', hov(D[i])));
+  TABBED.panes.forEach((p) => p.querySelector('.dot').style.setProperty('--hov', hov(DT)));
+
+  // bubble
+  bubble.style.display = 'none';
+  for (const b of BUBBLES) {
+    if (placeCard(bubble, b.d, b.open, b.close, t, BUB.w)) {
+      const name = b.o ? nameAt(b.o.acc, t) : nameAt(TABBED.paneAcc[4], t);
+      const theme = b.o ? seg(t, b.o.amoledAt, b.o.amoledAt + .45) : 1;
+      bubble.style.setProperty('--pop', css(mix(THEME.site.pop, THEME.amoled.pop, theme)));
+      markSelected(bubble, name);
+      break;
+    }
+  }
+  // panel
+  panel.style.display = 'none';
+  for (const p of PANELS) {
+    if (placeCard(panel, p.d, p.open, p.close, t, PAN.w)) {
+      const name = nameAt(p.o.acc, t);
+      const theme = seg(t, p.o.amoledAt, p.o.amoledAt + .45);
+      panel.style.setProperty('--pop', css(mix(THEME.site.pop, THEME.amoled.pop, theme)));
+      panel.style.setProperty('--pop2', css(mix(hexRgb('#3c3c3c'), hexRgb('#262626'), theme)));
+      panel.style.setProperty('--c', ACC[name]);
+      markSelected(panel, name);
+      $('.chip span', panel).textContent = name === 'claude' ? 'Default' : 'This chat';
+      $('.chip i', panel).style.setProperty('--c', ACC[name]);
+      const sv = seg(t, p.settingsAt, p.settingsAt + .22, ease.out);
+      pMain.style.opacity = 1 - sv; pMain.style.transform = `translateX(${-24 * sv}px)`;
+      pSet.style.opacity = sv; pSet.style.transform = `translateX(${24 * (1 - sv)}px)`;
+      pSet.style.display = sv > 0 ? 'block' : 'none';
+      const segOn = t >= 19.2 ? 2 : 0;
+      pSet.querySelectorAll('.seg span').forEach((s, i) => s.classList.toggle('on', i === segOn));
+      break;
+    }
+  }
+
+  // cursor (screen space) + click ripples
+  const sc = toScreen(cur);
+  let press = 1;
+  for (const c of CLICKS) { const d = t - c; if (d > -.07 && d < .1) press = Math.min(press, .82 + .18 * Math.abs(d < 0 ? d / .07 : d / .1)); }
+  cursor.style.transform = `translate(${sc[0] - 2}px,${sc[1] - 2}px) scale(${press.toFixed(3)})`;
+  CLICKS.forEach((c, i) => {
+    const d = t - c, r = ripples[i];
+    if (d < 0 || d > .45) { r.style.display = 'none'; return; }
+    const p = ease.out(d / .45), rad = lerp(6, 26, p);
+    Object.assign(r.style, { display: 'block', left: (sc[0] - rad) + 'px', top: (sc[1] - rad) + 'px', width: rad * 2 + 'px', height: rad * 2 + 'px', opacity: (.55 * (1 - p)).toFixed(3) });
+  });
+
+  // loop fade
+  fade.style.opacity = Math.max(1 - seg(t, 0, .6, ease.out), seg(t, 32.3, 33)).toFixed(3);
+}
+
+// ------------------------------------------------------------------ playback
+const screen = $('#screen');
+const exporting = location.hash.includes('export');
+window.seek = renderAt;
+window.DURATION = DURATION;
+if (exporting) {
+  document.body.style.background = '#000';
+  $('#view').style.display = 'block';
+  Object.assign(screen.style, { position: 'absolute', left: '0', top: '0', transformOrigin: '0 0' });
+  renderAt(0);
+} else {
+  const fit = () => { const s = Math.min(innerWidth / 1920, innerHeight / 1080); screen.style.transform = `scale(${s})`; };
+  fit(); addEventListener('resize', fit);
+  let start = performance.now(), paused = false, pausedAt = 0;
+  addEventListener('keydown', (e) => {
+    if (e.code !== 'Space') return;
+    paused = !paused;
+    if (paused) pausedAt = performance.now(); else start += performance.now() - pausedAt;
+  });
+  const t0 = Number(new URLSearchParams(location.search).get('t')) || 0;
+  start -= t0 * 1000;
+  const loop = (now) => { if (!paused) renderAt((now - start) / 1000); requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
