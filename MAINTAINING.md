@@ -386,7 +386,7 @@ Brave syncs `storage.sync` when Sync has "Extensions" enabled. This was not veri
 - **Light accents**: colors with `luminance > 0.4` (yellow, lime, mono, light customs) switch on-accent text to near-black. Keep that check when adding presets.
 - **`chatKey()` format is persistent data**: changing it orphans saved chat colors.
 - **The `key` in manifest.json is persistent identity**: changing it orphans all synced data.
-- **The Windows Alt+Shift language switch**: if enabled in Windows, Alt+Shift alone flips keyboard layouts. The README explains how to turn it off.
+- **The Windows Alt+Shift language switch**: if enabled in Windows, Alt+Shift alone flips keyboard layouts. Turn it off in Settings > Time & language > Typing > Advanced keyboard settings > Input language hot keys.
 - **The site's own light mode**: Darker and AMOLED assume dark-mode text tokens. They are documented as "set claude.ai to dark".
 
 ---
@@ -396,7 +396,7 @@ Brave syncs `storage.sync` when Sync has "Extensions" enabled. This was not veri
 1. `node dev/test-content.js` and `node dev/test-background.js` both pass.
 2. Bump `"version"` in [`manifest.json`](manifest.json) (patch for token fixes, minor for features).
 3. If a default changed, bump `SETTINGS_VERSION` and add a migration step (section 6).
-4. Update [`README.md`](README.md) if features or hotkeys changed (keep the hotkey table in sync with `HOTKEYS`).
+4. Update [`README.md`](README.md) if what Chroma does, or its main hotkeys, changed (the full hotkey list lives in `HOTKEYS` and the panel's Shortcuts section).
 5. Update section 5 of this file if you learned something new about claude.ai's structure.
 6. Reload (Alt+Shift+U) and do the visual pass in section 2, step 4.
 7. Run `python dev/build_zip.py`.
